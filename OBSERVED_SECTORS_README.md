@@ -56,9 +56,10 @@ the `TIC ID` column is **100% populated** and **100% consistent** with the TIC e
 
 ## Caveats / decisions
 
-- **First TGLC *production* sector is not confirmed.** Pablo said ~S94; `--since` defaults to 94 —
-  change it once confirmed. (Te Han's reprocessed TGLC products on disk currently cover S56–S63;
-  the *production* QLP+TGLC sector is the relevant threshold here — confirm with Willie/Glen.)
+- **First TGLC *production* sector = S94 (confirmed 2026-07-09).** `--since` defaults to 94 — keep
+  that. (Te Han's reprocessed TGLC products on disk currently cover S56–S63; S94+ is the production
+  hybrid threshold.) Related: QLP sector vetting has been sporadic — S95–S97 fully vetted, S89–S94
+  not; faint-star TOIs exist for S89–S93 but few are brighter than Tmag 10.5.
 - **Predicted vs processed:** tess-point gives the pointing prediction (≈ observed). Whether a
   TGLC light curve exists/was processed for each TIC is the separate access question in NOTES §3.
 - **Resolvers:** `local` (training CSV, offline, instant) → `mast` (astroquery, needs internet;
