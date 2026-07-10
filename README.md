@@ -38,6 +38,25 @@ training set through S103. (Details: [knowledge/PRODUCTION_LC_PATH.md](knowledge
 - **`inspect_reprocessed.ipynb`** — QA: schema check, full stitched curves with the TGLC (S94+)
   portion highlighted, distinct aperture channels, phase-folds, and NEW-vs-old-QLP comparison.
 
+#### Before/after-TGLC inspection (does adding TGLC change the model input?)
+Splits each reprocessed FITS at the **S94 cadence boundary** into *before* (QLP only, drop sectors
+≥94) and *after* (+TGLC), runs the **real Astronet vetting preprocessing** on both, and compares the
+full light curve + local/global views. Runs in your astronet dev env (e.g. conda
+`daniel_env_cloned_v2`) — reads only the FITS files, no DB.
+- **`before_after_core.py`** — shared logic (FITS read, S94 split, view-building, figure builder).
+- **`inspect_before_after.ipynb`** — interactive: ~10 examples/class, figures inline. Open in your
+  astronet kernel and run `show_class('p'/'e'/'j')`.
+- **`diagnose_before_after.py`** — headless: renders the same figures and posts them to a Discord
+  webhook (batched). `--dry-run` saves PNGs to `figures/before_after/` without posting.
+  ```bash
+  PY=/pdo/users/pablomer/miniconda3/envs/daniel_env_cloned_v2/bin/python3
+  $PY diagnose_before_after.py --dry-run            # render + save locally
+  $PY diagnose_before_after.py --n-per-class 10     # render + post to Discord
+  ```
+  Webhook is read from `--webhook`, `$DISCORD_WEBHOOK_URL`, or a git-ignored `.discord_webhook`
+  file (keep it out of git — it's a secret). Note: rendering uses the real spline detrend on full
+  multi-sector curves (~30–60 s per target), so a full 10/class run takes ~15–30 min.
+
 > Not done here (on purpose): extended-mission cadence rebinning and TFRecord generation. The
 > `cadences>40000 → 30 min` downsample belongs to the TFRecord stage (`generate_input_records_3.py`
 > / the FFITools getter), run later in your own env. We keep all cadences + a faithful `CADENCENO`.

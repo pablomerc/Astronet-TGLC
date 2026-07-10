@@ -4,3 +4,5 @@ __pycache__/
 .DS_Store
 *.log
 .cursor/
+.discord_webhook
+figures/before_after/
