@@ -27,6 +27,53 @@
 
 ---
 
+## 0.5 MAJOR UPDATE (2026-07-10): production reads TGLC from the DB → reprocessed set built
+
+Two findings this session change the plan and **supersede parts of §3 and §7**. Full detail
+in the new knowledge base: [`knowledge/PRODUCTION_LC_PATH.md`](knowledge/PRODUCTION_LC_PATH.md),
+[`knowledge/DATA_LOCATIONS.md`](knowledge/DATA_LOCATIONS.md),
+[`knowledge/FITS_SCHEMA_AND_PREPROCESSING.md`](knowledge/FITS_SCHEMA_AND_PREPROCESSING.md).
+
+1. **Production stitches from the `lightcurvedb` DB, not from `/pdo/qlp-data/*.h5`.**
+   `qlp estools astronet` (default `--source db`) → `default_io_backend.read_lightcurve(tic)`
+   → `_build_lc_from_obs_data_list` concatenates per-observation baselines (orbit-ordered).
+2. **TGLC (production photometry since S94) is ingested into the SAME DB tables as legacy QLP.**
+   So `read_lightcurve(tic)` returns ONE stitched baseline: legacy-QLP for sectors ≤93 + TGLC
+   for ≥94, automatically (no per-sector routing). Verified live on TIC 592638 (S5+S32 QLP,
+   S98 TGLC). DB covers sectors 1–104. Both pipelines expose 3 apertures (small/primary/large);
+   production uses `primary`.
+
+**Consequence:** the file-glob mix-and-match idea (`h5_to_fits_hybrid.py`, §7, and its D1–D4
+TGLC-file decisions in §3) is **obsolete** — the DB already does the QLP/TGLC merge. New tool:
+- **`db_to_fits.py`** — reads `read_lightcurve(tic)`, cuts at `--sector`, writes FITS in the
+  existing training schema (SAP_FLUX=primary, SML/MID/LAG=small/primary/large; rel-flux ~1,
+  transits dip; QUALITY = CCD-wide|TGLC). Run with the QLP operator venv + a clean PYTHONPATH:
+  `PYTHONPATH= /sw/qlp-environment/.venv/bin/python db_to_fits.py -i data/reobserved_s103_tics.txt
+  -o /pdo/users/pablomer/mnt/tess/reprocessed_s103_qlptglc_fits_files -s 103 -n 8`.
+- **`make_reobserved_tic_list.py`** — builds the input list + companion CSV.
+
+**What we produced (this session):** the reprocessed **reobserved subset** — training targets with
+an actual light curve in S94–S103 (`reobs103_lc` in `data/training_reobserved_s103.csv`):
+**5,781 unique TICs** (companion 5,834 TCEs: Junk 2,267 · Planet 1,885 · EB 1,682), each rebuilt
+through **S103** (QLP≤S93 + TGLC≥S94) →
+`/pdo/users/pablomer/mnt/tess/reprocessed_s103_qlptglc_fits_files/`. This sits alongside the
+existing 15k set as raw material for retraining/fine-tuning. **Scope of this task = DB→FITS light
+curves only.** TFRecord generation (`generate_input_records_3.py`) is a later step in Pablo's env.
+
+**Extended-mission rebinning is deferred:** the `cadences>40000 → 30 min` downsample happens in the
+TFRecord-stage getter (`helpers._preprocess_lc_arrays`), not in the LC content. `db_to_fits.py`
+keeps all cadences + a faithful `CADENCENO` so it's recoverable later.
+
+**Deployment reality (verified):** `/sw/astronet` → `astronet-3.0.1`; the v3.1.0 cutover has NOT
+happened. Live vetting model is still `AstroCNNModelVetting_cshallue_…` (single model), not the
+`pablomer_final` ensemble. So "match production" for the new ensemble = match the code it was
+trained with (`generate_input_records_3.py`), which becomes production at cutover.
+
+> §3's TGLC-file inventory and §7's `h5_to_fits_hybrid.py` prototype are kept below for history but
+> are **superseded** by the DB approach above.
+
+---
+
 ## 1. What we're adapting (the current model in one screen)
 
 - **Model:** `AstroCNNModel` (1-D CNN), 10-member ensemble `pablomer_final`, trained Mar-2026.
@@ -209,7 +256,8 @@ Full reasoning, risks, and decision gates: **`TGLC_strategy_memo.pdf`**.
   only label-valid if the TGLC swap wouldn't flip the disposition → gate it on **Phase 0** drift
   (run current ensemble on QLP-only vs hybrid of the same targets; exclude/re-vet class-flippers).
 
-**Prototype:** `TGLC_adaptation/h5_to_fits_hybrid.py` — a faithful, syntax-checked (but UNTESTED)
+**Prototype (SUPERSEDED 2026-07-10 — see §0.5; removed in favor of `db_to_fits.py`):**
+`TGLC_adaptation/h5_to_fits_hybrid.py` — a faithful, syntax-checked (but UNTESTED)
 clone of `h5_to_fits.py` with the per-sector source decision added (`decide_source()`,
 `--tglc-cutoff` / `--tglc-sectors`). QLP path is byte-identical (and with no TGLC flag it
 reproduces the original output, so it's a safe drop-in). The TGLC loader
@@ -267,6 +315,18 @@ gate G1)** — Te Han's S1–56 location/format/flux-units/flags + S56+ ETA from
 - **2026-06-26** — Scaffolded `h5_to_fits_hybrid.py` (per-sector QLP/TGLC source routing; QLP path
   faithful, TGLC loader stubbed with 3 TODOs). Next: locate TGLC products → fill the stub → run
   Phase 0 drift on QLP-only vs hybrid for overlap targets.
+- **2026-07-09** — Confirmed production facts (also in `.cursor/rules/tglc-qlp-sector-status.mdc`):
+  **TGLC introduced in S94** (no longer approximate). QLP sector vetting has been sporadic
+  (report issues): **S95–S97 fully vetted; S89–S94 not.** Faint-star-search TOIs released for
+  S89–S93, but only a few brighter than Tmag 10.5. Prefer S95–S97 for Phase 0 / eval pools.
+- **2026-07-10** — **Big one (see §0.5).** Established (code + live DB) that production stitches
+  LCs from `lightcurvedb` and that **TGLC S94+ lives in that same DB**, so `read_lightcurve(tic)`
+  returns a stitched QLP+TGLC baseline automatically. Wrote the `knowledge/` base (3 MD files).
+  Built **`db_to_fits.py`** (DB→FITS, production-faithful, progress/ETA) + `make_reobserved_tic_list.py`.
+  Generated the **reprocessed reobserved subset** (5,781 TICs, through S103) →
+  `mnt/tess/reprocessed_s103_qlptglc_fits_files/`. Retired `h5_to_fits_hybrid.py` (file-glob
+  approach obsolete). Confirmed `/sw/astronet`=3.0.1 (ensemble not yet deployed). Next: TFRecord
+  gen from the new FITS in Pablo's env + Phase 0 drift.
 
 ## 9. Pointers
 

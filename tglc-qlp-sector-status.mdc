@@ -1,0 +1,14 @@
+---
+description: Confirmed TGLC production start sector and QLP sector-vetting status (S89–S97)
+alwaysApply: true
+---
+
+# TGLC / QLP sector status (confirmed 2026-07-09)
+
+- **TGLC was introduced in sector 94.** Use S94 as the first production-TGLC sector (e.g. `--since 94` in `TGLC_adaptation/observed_sectors.py`). This is confirmed — not approximate.
+- **QLP sector vetting has been sporadic** (report / process issues), so do not assume contiguous recent-sector coverage.
+- **Fully vetted:** S95, S96, S97.
+- **Not fully vetted:** S89–S94.
+- **Faint-star-search TOIs** have been released for **S89–S93**, but only a few are brighter than **Tmag 10.5** — so the bright-star training/eval pool from those sectors is thin.
+
+When planning TGLC adaptation, Phase 0 overlap, or reobservation counts, prefer fully vetted S95–S97 over S89–S94.
