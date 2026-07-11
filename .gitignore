@@ -5,4 +5,3 @@ __pycache__/
 *.log
 .cursor/
 .discord_webhook
-figures/before_after/
