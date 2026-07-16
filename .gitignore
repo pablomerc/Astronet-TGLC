@@ -6,3 +6,5 @@ __pycache__/
 .cursor/
 .discord_webhook
 _cache/
+data/PROGRESS.md
+figures/period_gallery/

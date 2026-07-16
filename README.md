@@ -70,6 +70,33 @@ full light curve + local/global views. Runs in your astronet dev env (e.g. conda
 > Superseded: `h5_to_fits_hybrid.py` (a file-glob mix-and-match prototype) — the DB does the QLP/TGLC
 > merge, so it was removed (see git history / NOTES §0.5).
 
+### EB period revision (catalog crossmatch + risk-ranked manual triage)
+The reprocessed curves exposed stale/aliased EB periods (short original baselines; e.g.
+TIC 364302118 carried the half-period). This pipeline revises the **EB subset** (~1,682 TCEs) of the
+reprocessed set. Master table: **`data/reobserved_s103_revised.csv`** — full copy of the companion
+plus `revised` (NA/NO/YES), `Per_original`/`Epoc_original` (originals preserved; `Per`/`Epoc`
+overwritten in place when revised), `revision_source` (`catalog:<name>` / `manual_inspection`),
+`single_sector`, `risk_score`, `catalog_*`, `P_candidates`. All in `daniel_env_cloned_v2`:
+1. **`crossmatch_periods.py`** — builds the master; crossmatches VSX (VizieR `B/vsx/vsx`, 5″,
+   eclipsing types), Villanova TESS-EB (`J/ApJS/258/16/tess-ebs`, TIC), Gaia DR3
+   (`vari_eclipsing_binary`, P=1/frequency, 50-target TAP chunks), TOI (`tid`,`pl_orbper`).
+   Auto-adopts only when the catalog period is ~1×/2×/0.5× ours (±1%). Catalog pulls cached in
+   `data/catalog_cache/`. Report → `data/period_crossmatch_report.txt`.
+   *Result: 265/1,682 auto-revised (VSX 160 · Villanova 59 · Gaia 4 · TOI 42); 71 true period changes.*
+2. **`scan_periods.py`** — risk-scores the unrevised EBs on the full-baseline curve (fast per-segment
+   median detrend + 30-min binning + two-stage BLS refine + **z-scored odd/even parity test** for
+   half-period aliases + stale-period fold-SNR ratio). → `data/period_scan.csv`, merges `risk_score`
+   into the master. *Result: 194 half-period suspects · 780 stale · 92 weak · 351 ok (69% suspicious).*
+3. **`build_flag_gallery.py`** — renders candidate folds `[P0 | 2×P0 | P0/2 | BLS]` per target and
+   writes the static **`figures/period_gallery/index.html`** (risk-sorted, single-sector toggle,
+   click-the-right-fold / custom period / unsure; picks persist in localStorage; **Export revisions
+   CSV** downloads your decisions).
+4. **`apply_revisions.py <exported csv>`** — merges gallery picks into the master
+   (`revised=YES`, `revision_source=manual_inspection`; `P0` pick = "original confirmed").
+
+Progress lines are appended to `data/PROGRESS.md`; run `bash relay_progress.sh` in tmux to forward
+them to your Discord webhook (`.discord_webhook`, git-ignored).
+
 ### Reobservation & training-set analysis
 - **`observed_sectors.py`** + **[OBSERVED_SECTORS_README.md](OBSERVED_SECTORS_README.md)** — TIC →
   observed sectors via tess-point; produced `data/training_reobserved_since94.csv`.

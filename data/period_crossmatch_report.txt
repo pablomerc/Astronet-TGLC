@@ -1,0 +1,14 @@
+EB period crossmatch report — 2026-07-16 19:03
+EB TCEs: 1682 (1666 unique TICs) | ratio tol ±1.0% at 1x/2x/0.5x
+
+catalog      matched    gated  adopted
+vsx              171      160        0
+villanova         68       59        0
+gaia              11        4        4
+toi               44       42        0
+
+any-catalog match : 282/1682 (16.8%)
+ratio-gated       : 265/1682 (15.8%)
+revised=YES       : 265/1682 (15.8%)
+remaining manual  : 1417  (of which single-sector: 1417)
+adopted at 2x/0.5x (period actually changed >2%): 71

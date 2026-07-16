@@ -319,6 +319,21 @@ gate G1)** — Te Han's S1–56 location/format/flux-units/flags + S56+ ETA from
   **TGLC introduced in S94** (no longer approximate). QLP sector vetting has been sporadic
   (report issues): **S95–S97 fully vetted; S89–S94 not.** Faint-star-search TOIs released for
   S89–S93, but only a few brighter than Tmag 10.5. Prefer S95–S97 for Phase 0 / eval pools.
+- **2026-07-16** — **EB period revision pipeline (motivated by a real failure).** Discovered via the
+  before/after diagnostics that TIC 364302118's training period (0.6728 d, from its single-sector S12
+  file) is the aliased **half-period** — full-baseline BLS gives 1.34534 d and the stale period folds
+  to garbage on the reprocessed curve. Built the 4-step revision pipeline for the EB subset
+  (see README "EB period revision"): master table `data/reobserved_s103_revised.csv`
+  (`Per/Epoc` overwritten when `revised=YES`, originals kept in `Per_original/Epoc_original`,
+  provenance in `revision_source`). Results: **catalog crossmatch auto-revised 265/1,682** EB TCEs
+  (VSX 160 · Villanova 59 · Gaia 4 · TOI 42; 71 true 2×/0.5× changes — incl. TIC 364302118 via
+  Villanova at 1.3453456 d, matching our independent BLS); **risk scan of the remaining 1,417**:
+  194 half-period suspects · 780 stale · 92 weak · 351 ok (**~69% suspicious** — the single-sector
+  EB periods really don't survive the 7-yr baseline). Manual flag gallery at
+  `figures/period_gallery/index.html` (risk-sorted candidate folds; export CSV →
+  `apply_revisions.py`). Notable: ALL 1,417 unrevised EBs are single-sector `mk_` originals —
+  consistent with §4 (the stitched s64/s85 batches were ≈all Planet/Junk). ⚠ Downstream rule: build
+  TFRecords for EBs from the **revised** master, never the raw companion.
 - **2026-07-10** — **Big one (see §0.5).** Established (code + live DB) that production stitches
   LCs from `lightcurvedb` and that **TGLC S94+ lives in that same DB**, so `read_lightcurve(tic)`
   returns a stitched QLP+TGLC baseline automatically. Wrote the `knowledge/` base (3 MD files).
