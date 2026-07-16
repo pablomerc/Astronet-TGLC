@@ -44,7 +44,7 @@ def _ensure_astronet_on_path():
 
 _ensure_astronet_on_path()
 import astronet.preprocess.preprocess as pp  # noqa: E402
-from light_curve_util import util  # noqa: E402
+from light_curve_util import util, keplersplinev2  # noqa: E402
 
 
 def _first(x):
@@ -79,11 +79,13 @@ def read_curve(tic, fits_dir=FITS_DIR, flux_key="SAP_FLUX"):
     return t, f, cad, is_tglc
 
 
-def build_views(time, flux, period, epoch, duration, tic=0):
+def build_views(time, flux, period, epoch, duration, tic=0, is_tglc=None):
     """Run the REAL vetting preprocessing (bkspace=None): detrend -> fold -> global+local view.
 
     Mirrors astronet/preprocess/generate_input_records_3.py::_standard_views for the untagged view.
-    Returns a dict with detrended/folded arrays and the global (201) + local (61) views.
+    The detrend is inlined from preprocess.detrend_and_filter so we can keep the `valid` mask and
+    carry a per-point provenance tag (is_tglc) through to the fold (returned as fold_is_tglc).
+    Returns folded arrays + global (201) / local (61) views.
     """
     period = float(period)
     if not np.isfinite(period) or period <= 0:
@@ -91,7 +93,22 @@ def build_views(time, flux, period, epoch, duration, tic=0):
     if len(time) < MIN_PTS:
         raise ValueError(f"too few points ({len(time)})")
 
-    dt, df, dmask = pp.detrend_and_filter(tic, time, flux, period, float(epoch), float(duration), None)
+    input_mask = pp.get_spline_mask(time, period, float(epoch), float(duration))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spline_flux, metadata = keplersplinev2.choosekeplersplinev2(
+            time, flux, input_mask=input_mask, fixed_bkspace=None, return_metadata=True, maxiter=10)
+    y = spline_flux.copy()
+    bad = ~metadata.light_curve_mask
+    if np.sum(~bad) >= 2 and np.any(bad):
+        y[bad] = np.interp(time[bad], time[~bad], y[~bad])
+    elif np.sum(~bad) < 2:
+        bad = ~input_mask
+        if np.sum(~bad) >= 2 and np.any(bad):
+            y[bad] = np.interp(time[bad], time[~bad], y[~bad])
+    detr = flux / y
+    valid = ~np.isnan(detr)
+    dt, df = time[valid], detr[valid]
     if len(dt) < MIN_PTS:
         raise ValueError(f"too few points after detrend ({len(dt)})")
 
@@ -99,50 +116,98 @@ def build_views(time, flux, period, epoch, duration, tic=0):
     if ep < dt[0]:
         ep += period * np.ceil((dt[0] - ep) / period)
 
-    ft, ff, _, _ = pp.phase_fold_and_sort_light_curve(dt, df, dmask, period, ep)
     fabs, _ = util.phase_fold_time(dt, period, ep)
     o = np.argsort(fabs)
-    rt, rf = dt[o], df[o]
+    ft, ff = fabs[o], df[o]
+    rt = dt[o]  # unfolded BTJD, fold-sorted (median_filter2 picks cadence width from absolute time)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        gview = np.asarray(_first(pp.global_view(tic, ft, ff, period, all_30min=False, raw_time=rt, raw_flux=rf)), float)
-        lview = np.asarray(_first(pp.local_view(tic, ft, ff, period, float(duration), all_30min=False, raw_time=rt, raw_flux=rf)), float)
-    return {"dt_time": dt, "dt_flux": df, "fold_t": ft, "fold_f": ff, "gview": gview, "lview": lview}
+        gview = np.asarray(_first(pp.global_view(tic, ft, ff, period, all_30min=False, raw_time=rt, raw_flux=ff)), float)
+        lview = np.asarray(_first(pp.local_view(tic, ft, ff, period, float(duration), all_30min=False, raw_time=rt, raw_flux=ff)), float)
+    out = {"fold_t": ft, "fold_f": ff, "gview": gview, "lview": lview}
+    if is_tglc is not None:
+        out["fold_is_tglc"] = np.asarray(is_tglc)[valid][o]
+    return out
 
 
-def make_example_figure(tic, meta, fits_dir=FITS_DIR):
-    """Build a before/after diagnostic figure for one target. Returns (fig, info).
+def compute_example(tic, meta, fits_dir=FITS_DIR):
+    """Do the EXPENSIVE work for one target (read + detrend + fold + views), no plotting.
 
-    meta: dict-like with Per, Epoc, Dur, first_letter (label). info reports counts / any errors.
+    Returns a dict of arrays/scalars that figure_from_data() renders. Cache this (save_cache)
+    so restyling the plot doesn't re-run the ~40 s/target spline detrend.
     """
+    per, epo, dur = float(meta["Per"]), float(meta["Epoc"]), float(meta["Dur"])
+    label = str(meta.get("first_letter", "?"))
+    t, f, cad, is_tglc = read_curve(tic, fits_dir)
+    dat = {"tic": int(tic), "label": label, "per": per, "dur": dur,
+           "n_before": int((~is_tglc).sum()), "n_tglc": int(is_tglc.sum()),
+           "t": t, "f": f, "is_tglc": is_tglc, "errors": {}}
+    for tag, (tt, ff, itag) in [("before", (t[~is_tglc], f[~is_tglc], None)),
+                                ("after", (t, f, is_tglc))]:
+        try:
+            v = build_views(tt, ff, per, epo, dur, tic=int(tic), is_tglc=itag)
+            dat[f"{tag}_fold_t"] = v["fold_t"]; dat[f"{tag}_fold_f"] = v["fold_f"]
+            dat[f"{tag}_gview"] = v["gview"]; dat[f"{tag}_lview"] = v["lview"]
+            if "fold_is_tglc" in v:
+                dat[f"{tag}_fold_is_tglc"] = v["fold_is_tglc"]
+        except Exception as e:  # noqa: BLE001
+            dat["errors"][tag] = repr(e)[:160]
+    return dat
+
+
+def save_cache(dat, path):
+    import json
+
+    arrs = {k: v for k, v in dat.items() if isinstance(v, np.ndarray)}
+    scalars = {k: v for k, v in dat.items() if k != "errors" and not isinstance(v, np.ndarray)}
+    np.savez_compressed(path, _scalars=json.dumps(scalars), _errors=json.dumps(dat["errors"]), **arrs)
+
+
+def load_cache(path):
+    import json
+
+    z = np.load(path, allow_pickle=False)
+    dat = json.loads(str(z["_scalars"]))
+    dat["errors"] = json.loads(str(z["_errors"]))
+    for k in z.files:
+        if not k.startswith("_"):
+            dat[k] = z[k]
+    return dat
+
+
+def _folded_ylim(ax, vals):
+    vals = np.asarray(vals, float)
+    vals = vals[np.isfinite(vals)]
+    if not len(vals):
+        return
+    med = np.nanmedian(vals)
+    mad = np.nanmedian(np.abs(vals - med)) * 1.4826 + 1e-6
+    lo = min(np.nanpercentile(vals, 0.5), med - 6 * mad)
+    hi = max(np.nanpercentile(vals, 99.5), med + 6 * mad)
+    pad = 0.12 * (hi - lo)
+    ax.set_ylim(lo - pad, hi + pad)
+
+
+def figure_from_data(dat):
+    """Render the before/after figure (2x3) from a computed/cached dict (cheap)."""
     import matplotlib.pyplot as plt
 
-    label = str(meta.get("first_letter", "?"))
-    cls = CLASS_NAMES.get(label, label)
-    per, epo, dur = float(meta["Per"]), float(meta["Epoc"]), float(meta["Dur"])
+    tic = int(dat["tic"]); cls = CLASS_NAMES.get(dat["label"], dat["label"])
+    per, dur = float(dat["per"]), float(dat["dur"])
+    t, f, is_tglc = dat["t"], dat["f"], dat["is_tglc"].astype(bool)
+    n_before, n_tglc = int(dat["n_before"]), int(dat["n_tglc"])
+    has = lambda tag: f"{tag}_gview" in dat  # noqa: E731
+    dur_w = dur if np.isfinite(dur) and dur > 0 else 0.05 * per
+    win = min(per / 2, max(3.0 * dur_w, 0.03 * per))
 
-    t, f, cad, is_tglc = read_curve(tic, fits_dir)
-    n_before, n_tglc = int((~is_tglc).sum()), int(is_tglc.sum())
-    info = {"tic": int(tic), "label": label, "n_before": n_before, "n_tglc": n_tglc,
-            "period": per, "errors": {}}
-
-    def try_views(tt, hff, tag):
-        try:
-            return build_views(tt, hff, per, epo, dur, tic=int(tic))
-        except Exception as e:  # noqa: BLE001
-            info["errors"][tag] = repr(e)[:160]
-            return None
-
-    v_before = try_views(t[~is_tglc], f[~is_tglc], "before")
-    v_after = try_views(t, f, "after")
-
-    fig, ax = plt.subplots(1, 3, figsize=(18, 4.2))
+    fig, axes = plt.subplots(2, 3, figsize=(19, 8))
     fig.suptitle(
-        f"TIC {int(tic)}  [{cls}]   P={per:.3f} d   |   before(<S94): {n_before} pts   "
-        f"added TGLC(>=S94): {n_tglc} pts", fontsize=13, y=1.02)
+        f"TIC {tic}  [{cls}]   P={per:.3f} d   |   before(<S94): {n_before} pts   "
+        f"added TGLC(>=S94): {n_tglc} pts", fontsize=13, y=1.0)
+    ax = axes.ravel()
 
-    # Panel 1: full light curve, before vs newly-added TGLC
+    # ax0: full light curve
     if len(f):
         lo, hi = np.nanpercentile(f, [0.3, 99.7])
         ax[0].set_ylim(lo, hi)
@@ -152,26 +217,61 @@ def make_example_figure(tic, meta, fits_dir=FITS_DIR):
     ax[0].set_title("Full light curve"); ax[0].set_xlabel("Time (BTJD)"); ax[0].set_ylabel("rel. flux (SAP)")
     ax[0].legend(markerscale=6, fontsize=8, loc="lower left")
 
-    # Panel 2: local view (transit) before vs after
-    if v_before is not None:
-        ax[1].plot(v_before["lview"], color="C0", lw=1.6, label="before (QLP only)")
-    if v_after is not None:
-        ax[1].plot(v_after["lview"], color="crimson", lw=1.6, label="after (+TGLC)")
-    ax[1].set_title("LOCAL view (61 bins, transit)"); ax[1].set_xlabel("bin"); ax[1].set_ylabel("norm. flux")
-    ax[1].legend(fontsize=9)
+    # ax1: folded before vs after -- draw AFTER (red) first, BEFORE (blue) on top & stronger
+    allf = []
+    if "after_fold_t" in dat:
+        m = np.abs(dat["after_fold_t"]) < win
+        ax[1].plot(dat["after_fold_t"][m], dat["after_fold_f"][m], ".", ms=1.5, alpha=.28, color="crimson", label="after (+TGLC)")
+        if m.any():
+            allf.append(dat["after_fold_f"][m])
+    if "before_fold_t" in dat:
+        m = np.abs(dat["before_fold_t"]) < win
+        ax[1].plot(dat["before_fold_t"][m], dat["before_fold_f"][m], ".", ms=2.6, alpha=.6, color="C0", label="before (QLP only)")
+        if m.any():
+            allf.append(dat["before_fold_f"][m])
+    _folded_ylim(ax[1], np.concatenate(allf) if allf else [])
+    ax[1].axvline(0, color="k", ls=":", lw=.8, alpha=.5)
+    ax[1].set_title(f"Folded detrended (±{win:.2f} d) — before over after")
+    ax[1].set_xlabel("phase (days)"); ax[1].set_ylabel("detrended flux")
+    ax[1].legend(markerscale=6, fontsize=8, loc="lower left")
 
-    # Panel 3: global view before vs after
-    if v_before is not None:
-        ax[2].plot(v_before["gview"], color="C0", lw=1.2, label="before (QLP only)")
-    if v_after is not None:
-        ax[2].plot(v_after["gview"], color="crimson", lw=1.2, label="after (+TGLC)")
-    ax[2].set_title("GLOBAL view (201 bins)"); ax[2].set_xlabel("bin"); ax[2].set_ylabel("norm. flux")
-    ax[2].legend(fontsize=9)
+    # ax2: folded AFTER, colored by provenance -- repeated/old vs new TGLC
+    if "after_fold_is_tglc" in dat:
+        tg = dat["after_fold_is_tglc"].astype(bool)
+        m = np.abs(dat["after_fold_t"]) < win
+        old, new = m & ~tg, m & tg
+        ax[2].plot(dat["after_fold_t"][old], dat["after_fold_f"][old], ".", ms=1.5, alpha=.3, color="0.55", label=f"repeated/old ({int(old.sum())})")
+        ax[2].plot(dat["after_fold_t"][new], dat["after_fold_f"][new], ".", ms=2.2, alpha=.6, color="crimson", label=f"new TGLC ({int(new.sum())})")
+        _folded_ylim(ax[2], dat["after_fold_f"][m])
+        ax[2].axvline(0, color="k", ls=":", lw=.8, alpha=.5)
+    else:
+        ax[2].text(0.5, 0.5, "(after view unavailable)", ha="center", va="center", transform=ax[2].transAxes)
+    ax[2].set_title("Folded: repeated (old) vs new TGLC")
+    ax[2].set_xlabel("phase (days)"); ax[2].set_ylabel("detrended flux")
+    ax[2].legend(markerscale=6, fontsize=8, loc="lower left")
 
-    for a in ax:
+    # ax3: local view; ax4: global view
+    for tag, color in [("before", "C0"), ("after", "crimson")]:
+        if has(tag):
+            lab = {"before": "before (QLP only)", "after": "after (+TGLC)"}[tag]
+            ax[3].plot(dat[f"{tag}_lview"], color=color, lw=1.6, label=lab)
+            ax[4].plot(dat[f"{tag}_gview"], color=color, lw=1.2, label=lab)
+    ax[3].set_title("LOCAL view (61 bins)"); ax[3].set_xlabel("bin"); ax[3].set_ylabel("norm. flux"); ax[3].legend(fontsize=9)
+    ax[4].set_title("GLOBAL view (201 bins)"); ax[4].set_xlabel("bin"); ax[4].set_ylabel("norm. flux"); ax[4].legend(fontsize=9)
+
+    ax[5].axis("off")
+    for a in ax[:5]:
         a.grid(True, alpha=0.25)
     fig.tight_layout()
-    return fig, info
+    return fig
+
+
+def make_example_figure(tic, meta, fits_dir=FITS_DIR):
+    """Compute + render one target's before/after figure. Returns (fig, info)."""
+    dat = compute_example(tic, meta, fits_dir)
+    info = {"tic": dat["tic"], "label": dat["label"], "n_before": dat["n_before"],
+            "n_tglc": dat["n_tglc"], "period": dat["per"], "errors": dat["errors"]}
+    return figure_from_data(dat), info
 
 
 def load_tables(companion=COMPANION, summary=SUMMARY):

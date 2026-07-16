@@ -55,7 +55,14 @@ full light curve + local/global views. Runs in your astronet dev env (e.g. conda
   ```
   Webhook is read from `--webhook`, `$DISCORD_WEBHOOK_URL`, or a git-ignored `.discord_webhook`
   file (keep it out of git — it's a secret). Note: rendering uses the real spline detrend on full
-  multi-sector curves (~30–60 s per target), so a full 10/class run takes ~15–30 min.
+  multi-sector curves (~30–60 s per target), so a full 10/class run takes ~15–30 min. Runs cache
+  computed arrays under `<outdir>/_cache/` (git-ignored); re-style instantly with `--replot`, or
+  post an already-rendered folder to Discord instantly with `--post-existing <dir>`.
+
+  **Rendered galleries (each has a `README.md` that renders on GitHub):**
+  - `figures/before_after/` — 3-panel (full LC · local view · global view)
+  - `figures/before_after_folded/` — 2×3, adds the **folded detrended scatter** (before over after)
+    and a **repeated/old vs new-TGLC** provenance panel
 
 > Not done here (on purpose): extended-mission cadence rebinning and TFRecord generation. The
 > `cadences>40000 → 30 min` downsample belongs to the TFRecord stage (`generate_input_records_3.py`

@@ -5,3 +5,4 @@ __pycache__/
 *.log
 .cursor/
 .discord_webhook
+_cache/

@@ -87,9 +87,40 @@ def main():
     p.add_argument("--outdir", default=os.path.join(HERE, "figures", "before_after"),
                    help="where to also save PNGs")
     p.add_argument("--dpi", type=int, default=90)
+    p.add_argument("--replot", action="store_true",
+                   help="re-plot from cached arrays in <outdir>/_cache (instant; no re-detrend). "
+                        "Use after a first run to restyle figures.")
+    p.add_argument("--post-existing", metavar="DIR", default=None,
+                   help="skip rendering; post the PNGs already in DIR to Discord (batched). "
+                        "Use this to send a previously rendered folder instantly.")
     args = p.parse_args()
 
+    if args.post_existing:
+        import glob
+        webhook = resolve_webhook(args.webhook)
+        if not webhook:
+            sys.exit("No webhook (use --webhook / $DISCORD_WEBHOOK_URL / .discord_webhook).")
+        classes = [c.strip() for c in args.classes.split(",") if c.strip()]
+        post_batch(webhook, f"**Before/After TGLC diagnostics** (from {os.path.basename(args.post_existing.rstrip('/'))})", [])
+        for L in classes:
+            pngs = sorted(glob.glob(os.path.join(args.post_existing, f"before_after_{L}_*.png")))
+            if not pngs:
+                continue
+            batch = []
+            for pth in pngs:
+                with open(pth, "rb") as fh:
+                    batch.append((os.path.basename(pth), fh.read()))
+                if len(batch) == MAX_FILES_PER_MSG:
+                    post_batch(webhook, f"**{core.CLASS_NAMES.get(L, L)}** (batch)", batch); batch = []; time.sleep(1.0)
+            if batch:
+                post_batch(webhook, f"**{core.CLASS_NAMES.get(L, L)}** — {len(pngs)} examples", batch); time.sleep(1.0)
+            print(f"  {core.CLASS_NAMES.get(L, L)}: posted {len(pngs)} figures from {args.post_existing}")
+        print("DONE. Sent existing figures to Discord.")
+        return
+
     os.makedirs(args.outdir, exist_ok=True)
+    cache_dir = os.path.join(args.outdir, "_cache")
+    os.makedirs(cache_dir, exist_ok=True)
     webhook = None if args.dry_run else resolve_webhook(args.webhook)
     if not args.dry_run and not webhook:
         sys.exit("No webhook found (use --webhook, $DISCORD_WEBHOOK_URL, or .discord_webhook), "
@@ -115,8 +146,16 @@ def main():
         n_ok = 0
         for r in rows:
             tic = int(r["TIC ID"])
+            cache_path = os.path.join(cache_dir, f"{tic}.npz")
             try:
-                fig, info = core.make_example_figure(tic, r, fits_dir=args.fits_dir)
+                if args.replot and os.path.exists(cache_path):
+                    dat = core.load_cache(cache_path)
+                else:
+                    dat = core.compute_example(tic, r, fits_dir=args.fits_dir)
+                    core.save_cache(dat, cache_path)
+                fig = core.figure_from_data(dat)
+                info = {"n_before": dat["n_before"], "n_tglc": dat["n_tglc"],
+                        "period": dat["per"], "errors": dat["errors"]}
             except Exception as e:  # noqa: BLE001
                 print(f"  TIC {tic}: FAILED {e!r}", file=sys.stderr)
                 continue
