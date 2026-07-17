@@ -92,7 +92,9 @@ overwritten in place when revised), `revision_source` (`catalog:<name>` / `manua
    click-the-right-fold / custom period / unsure; picks persist in localStorage; **Export revisions
    CSV** downloads your decisions).
 4. **`apply_revisions.py <exported csv>`** — merges gallery picks into the master
-   (`revised=YES`, `revision_source=manual_inspection`; `P0` pick = "original confirmed").
+   (`revised=YES`, `revision_source=manual_inspection`; `P0` pick = "original confirmed";
+   `unsure` pick → **`revised=DISCARD`** = human-reviewed, no usable period — **exclude these
+   rows from training** by filtering `revised != "DISCARD"`).
 
 Progress lines are appended to `data/PROGRESS.md`; run `bash relay_progress.sh` in tmux to forward
 them to your Discord webhook (`.discord_webhook`, git-ignored).
