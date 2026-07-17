@@ -215,7 +215,7 @@ function exportCSV(){
     if(!p) continue;
     rows.push([d.astro_id,d.tic,p.choice,p.period===null?"":p.period]);
   }
-  const csv=rows.map(r=>r.join(",")).join("\n");
+  const csv=rows.map(r=>r.join(",")).join("\\n");
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
   a.download="period_revisions.csv"; a.click();
