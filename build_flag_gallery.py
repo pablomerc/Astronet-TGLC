@@ -96,8 +96,6 @@ HTML_HEAD = """<!doctype html><html><head><meta charset="utf-8">
  .meta b{font-size:14px}
  .imgwrap{position:relative;display:block}
  .imgwrap img{max-width:100%;height:auto;display:block;cursor:pointer}
- .hl{position:absolute;top:0;height:100%;border:3px solid #2e7d32;border-radius:8px;
-     box-shadow:0 0 8px rgba(46,125,50,.7) inset;pointer-events:none}
  button{margin:2px;padding:5px 10px;cursor:pointer;border:1px solid #888;border-radius:5px;background:#f2f2f2}
  button.sel{background:#2e7d32;color:#fff;border-color:#2e7d32}
  .flag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;margin-left:6px;color:#fff}
@@ -183,14 +181,6 @@ function refresh(){
     }
     const selCust = p && p.choice==="custom" ? "sel":"";
     const selUns  = p && p.choice==="unsure" ? "sel":"";
-    let hl="";
-    if(p){
-      const i=d.cands.findIndex(c=>c.kind===p.choice);
-      if(i>=0){
-        const wpct=100.0/d.cands.length;
-        hl=`<div class="hl" style="left:${(i*wpct).toFixed(2)}%;width:${wpct.toFixed(2)}%"></div>`;
-      }
-    }
     div.innerHTML = `<div class="meta"><b>TIC ${d.tic}</b> (Astro ${d.astro_id})
        risk=${score(d).toFixed(2)} ${flags}
        ${d.auto?('<span class="flag f_auto">auto '+d.auto+'</span>'):''}
@@ -198,7 +188,7 @@ function refresh(){
        ${p?('<b> &rarr; '+p.choice+(p.period?(' @ '+p.period):'')+'</b> <button onclick="clearPick('+d.astro_id+')">undo</button>'):''}
       </div>
       <div class="imgwrap"><img loading="lazy" src="pngs/${d.astro_id}.png"
-           onclick="imgClick(${d.astro_id},event)">${hl}</div>
+           onclick="imgClick(${d.astro_id},event)"></div>
       <div>${btns}
         <button class="${selCust}" onclick="custom(${d.astro_id})">custom:</button>
         <input type="number" step="any" id="cust${d.astro_id}" placeholder="period (d)">
