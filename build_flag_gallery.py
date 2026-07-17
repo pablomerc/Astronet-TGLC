@@ -310,6 +310,7 @@ def main():
         if np.isfinite(P_bls):
             cands += [{"kind": "BLS", "period": P_bls},
                       {"kind": "2xBLS", "period": 2 * P_bls},
+                      {"kind": "4xBLS", "period": 4 * P_bls},
                       {"kind": "BLS/2", "period": 0.5 * P_bls}]
         tasks.append((aid, tic, [(c["kind"], c["period"]) for c in cands], dur, t0))
         meta.append({"astro_id": aid, "tic": tic, "risk_base": round(risk - ss_bonus, 3),

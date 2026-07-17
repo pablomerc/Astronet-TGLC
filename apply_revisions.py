@@ -3,7 +3,7 @@
 Takes the period_revisions.csv exported by the flag gallery (columns:
 astro_id,tic,choice,chosen_period) and applies it to data/reobserved_s103_revised.csv:
 
-  choice in {P0, 2xP0, P0/2, BLS, 2xBLS, BLS/2, custom}
+  choice in {P0, 2xP0, P0/2, BLS, 2xBLS, 4xBLS, BLS/2, custom}
       -> Per <- chosen_period, revised=YES, revision_source=manual_inspection
      (P0 = "original period confirmed fine": Per stays equal to Per_original, but the row
       still becomes revised=YES so we know a human checked it.)
